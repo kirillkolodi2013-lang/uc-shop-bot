@@ -993,26 +993,9 @@ def main():
         first=next_monday,
     )
 
-    # Бот-уведомитель
-    notify_app = Application.builder().token(NOTIFY_TOKEN).build()
-    notify_app.add_handler(CommandHandler("start", cmd_start_notifier))
-
-    logger.info("Боты запущены!")
-    import asyncio
-
-    async def run_both():
-        async with app, notify_app:
-            await app.initialize()
-            await notify_app.initialize()
-            await app.start()
-            await notify_app.start()
-            await app.updater.start_polling(drop_pending_updates=True)
-            await notify_app.updater.start_polling(drop_pending_updates=True)
-            await asyncio.Event().wait()
-
-    asyncio.run(run_both())
+    logger.info("Бот запущен!")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main()) if False else main()
+    main()
