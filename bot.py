@@ -640,7 +640,8 @@ async def _send_to_group(context, order_id, order):
     order["takers"] = []
     order["taker_names"] = []
 
-    msg = await context.bot.send_message(GROUP_ID, text, reply_markup=kb, parse_mode="Markdown")
+    notify = notify_bot_app.bot if notify_bot_app else context.bot
+    msg = await notify.send_message(GROUP_ID, text, reply_markup=kb, parse_mode="Markdown")
     order["group_msg_id"] = msg.message_id
 
 
@@ -883,9 +884,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-async def _notify_admins(context, order_id, order, photo_id, bot=None):
-    if bot is None:
-        bot = context.bot
+async def _notify_admins(context, order_id, order, photo_id):
+    bot = notify_bot_app.bot if notify_bot_app else context.bot
     otype = order["type"]
     user = order.get("username", "неизвестен")
     uid = order.get("user_id")
@@ -973,18 +973,24 @@ async def weekly_stats(context: ContextTypes.DEFAULT_TYPE):
     save_stats({})
 
 
-# ─── ЗАПУСК ───────────────────────────────────────────────
-def main():
-    app = Application.builder().token(MAIN_TOKEN).build()
+# Глобальный объект уведомителя для использования в _notify_admins
+notify_bot_app = None
 
+# ─── ЗАПУСК ───────────────────────────────────────────────
+import asyncio
+
+async def main():
+    global notify_bot_app
+
+    # Основной бот
+    app = Application.builder().token(MAIN_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
 
-    # Еженедельная статистика — каждый понедельник в 10:00 МСК
+    # Еженедельная статистика
     job_queue = app.job_queue
     now_msk = datetime.now(MSK)
-    # Находим следующий понедельник 10:00 МСК
     days_until_monday = (7 - now_msk.weekday()) % 7 or 7
     next_monday = now_msk.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=days_until_monday)
     job_queue.run_repeating(
@@ -993,9 +999,55 @@ def main():
         first=next_monday,
     )
 
-    logger.info("Бот запущен!")
-    app.run_polling(drop_pending_updates=True)
+    # Бот-уведомитель
+    notify_app = Application.builder().token(NOTIFY_TOKEN).build()
+    notify_app.add_handler(CommandHandler("start", cmd_start_notifier))
+    notify_app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.User(ADMIN_IDS),
+        notify_code_handler
+    ))
+    notify_bot_app = notify_app
+
+    logger.info("Оба бота запущены!")
+
+    async with app, notify_app:
+        await app.initialize()
+        await notify_app.initialize()
+        await app.start()
+        await notify_app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        await notify_app.updater.start_polling(drop_pending_updates=True)
+        await asyncio.Event().wait()
+        await app.updater.stop()
+        await notify_app.updater.stop()
+        await app.stop()
+        await notify_app.stop()
+
+
+async def notify_code_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Админ вводит код UC через бот-уведомитель"""
+    if update.message.from_user.id not in ADMIN_IDS:
+        return
+    code_order = context.user_data.get("awaiting_code_order")
+    if not code_order:
+        return
+    order_id = code_order
+    order = orders.get(order_id)
+    if order:
+        code = update.message.text.strip()
+        context.user_data.pop("awaiting_code_order", None)
+        try:
+            await context.bot.send_message(
+                order["user_id"],
+                f"✅ *Оплата принята!*\n\n"
+                f"🎮 Ваш код UC:\n`{code}`\n\n"
+                f"Спасибо за покупку! 🎉",
+                parse_mode="Markdown"
+            )
+            await update.message.reply_text(f"✅ Код отправлен покупателю (заказ #{order_id})")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
