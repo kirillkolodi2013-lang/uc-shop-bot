@@ -166,7 +166,24 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
 # ─── СТАРТ ────────────────────────────────────────────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    user = update.message.from_user
+    welcome = (
+        f"👋 Привет, *{user.first_name}*!\n\n"
+        "🎮 Добро пожаловать в *UC Shop* — твой надёжный магазин для PUBG Mobile!\n\n"
+        "У нас ты можешь:\n"
+        "💎 Купить *UC* по выгодным ценам\n"
+        "⚔️ Заказать *сопровождение* с профи-игроками\n"
+        "🛒 Приобрести снаряжение в *Metro-Shop*\n\n"
+        "Оплата: 🇷🇺 Рубли и 🇹🇲 Манаты\n"
+        "⚡️ Быстро • Надёжно • Выгодно\n\n"
+        "Выбирай раздел и поехали! 👇"
+    )
+    await update.message.reply_text(welcome, parse_mode="Markdown")
     await send_main_menu(update, context)
+
+
+async def cmd_start_notifier(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Бот успешно подключён! Уведомления о заказах будут приходить сюда.")
 
 # ─── ГЛАВНОЕ МЕНЮ ─────────────────────────────────────────
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -976,9 +993,26 @@ def main():
         first=next_monday,
     )
 
-    logger.info("Бот запущен!")
-    app.run_polling(drop_pending_updates=True)
+    # Бот-уведомитель
+    notify_app = Application.builder().token(NOTIFY_TOKEN).build()
+    notify_app.add_handler(CommandHandler("start", cmd_start_notifier))
+
+    logger.info("Боты запущены!")
+    import asyncio
+
+    async def run_both():
+        async with app, notify_app:
+            await app.initialize()
+            await notify_app.initialize()
+            await app.start()
+            await notify_app.start()
+            await app.updater.start_polling(drop_pending_updates=True)
+            await notify_app.updater.start_polling(drop_pending_updates=True)
+            await asyncio.Event().wait()
+
+    asyncio.run(run_both())
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main()) if False else main()
