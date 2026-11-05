@@ -866,7 +866,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-async def _notify_admins(context, order_id, order, photo_id):
+async def _notify_admins(context, order_id, order, photo_id, bot=None):
+    if bot is None:
+        bot = context.bot
     otype = order["type"]
     user = order.get("username", "неизвестен")
     uid = order.get("user_id")
@@ -918,12 +920,13 @@ async def _notify_admins(context, order_id, order, photo_id):
     for admin_id in ADMIN_IDS:
         try:
             await context.bot.send_photo(
-                admin_id,
+                chat_id=admin_id,
                 photo=photo_id,
                 caption=text,
                 reply_markup=kb,
                 parse_mode="Markdown"
             )
+            logger.info(f"Уведомление отправлено админу {admin_id}")
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
